@@ -24,6 +24,8 @@ var _config_ui_injector = null
 var _info_container: VBoxContainer = null
 ## Maps mod display names to mod_ids for config panel selection
 var _mod_name_to_id: Dictionary = {}
+## Maps mod_ids to min_modloader_version for UI display
+var _mod_id_to_min_version: Dictionary = {}
 ## Tracks the last detected mod name in the InfoContainer to detect selection changes
 var _last_info_mod_name: String = ""
 
@@ -205,8 +207,6 @@ func _load_configs(valid_mods: Array) -> void:
 	ModdingAPI._config_manager = _config_manager
 	for manifest in valid_mods:
 		if _is_mod_enabled(manifest.mod_id):
-			# Build name-to-id map for config UI selection
-			_mod_name_to_id[manifest.mod_name] = manifest.mod_id
 			var loaded: bool = _config_manager.load_config(manifest.mod_id, manifest.mod_folder)
 			if loaded:
 				print("%s [%s] Config loaded" % [LOG_TAG, manifest.mod_id])
@@ -266,6 +266,10 @@ func _validate_and_sort(mods: Array) -> Array:
 	var available_ids: Dictionary = {}
 	for manifest in mods:
 		available_ids[manifest.mod_id] = true
+		# Build name-to-id map for all discovered mods (including ones that may fail validation)
+		_mod_name_to_id[manifest.mod_name] = manifest.mod_id
+		if not manifest.min_modloader_version.is_empty():
+			_mod_id_to_min_version[manifest.mod_id] = manifest.min_modloader_version
 
 	var valid_mods: Array = []
 	for manifest in mods:
@@ -474,11 +478,16 @@ func _check_mod_selection() -> void:
 
 	_last_info_mod_name = current_mod_name
 
-	# Remove any existing config panel
+	# Remove any existing injected elements (config panel and version label)
 	for child in _info_container.get_children():
 		if child.name == "ConfigPanel":
 			_info_container.remove_child(child)
 			child.queue_free()
+	# Version label may be nested inside a child container
+	var old_ver_label := _find_node_by_name(_info_container, "ModLoaderVersionLabel")
+	if old_ver_label and is_instance_valid(old_ver_label):
+		old_ver_label.get_parent().remove_child(old_ver_label)
+		old_ver_label.queue_free()
 
 	if current_mod_name.is_empty():
 		return
@@ -487,6 +496,24 @@ func _check_mod_selection() -> void:
 	var mod_id: String = _mod_name_to_id.get(current_mod_name, "")
 	if mod_id.is_empty():
 		return
+
+	# Inject modloader version label if min_modloader_version is defined
+	if _mod_id_to_min_version.has(mod_id):
+		var min_ver: String = _mod_id_to_min_version[mod_id]
+		var ver_label := Label.new()
+		ver_label.name = "ModLoaderVersionLabel"
+		ver_label.text = "For modloader: v%s" % min_ver
+		if _is_version_newer(min_ver, VERSION):
+			ver_label.add_theme_color_override("font_color", Color.RED)
+		# Find the "For game version" label and insert right after it
+		var game_ver_label := _find_label_containing(_info_container, "game version", 5)
+		if game_ver_label and game_ver_label.get_parent():
+			var parent := game_ver_label.get_parent()
+			var idx: int = game_ver_label.get_index() + 1
+			parent.add_child(ver_label)
+			parent.move_child(ver_label, idx)
+		else:
+			_info_container.add_child(ver_label)
 
 	# Check if this mod has config entries
 	var config_entries: Dictionary = _config_manager.get_config_entries(mod_id)
@@ -505,6 +532,19 @@ func _find_node_by_name(node: Node, target_name: String) -> Node:
 		return node
 	for child in node.get_children():
 		var result := _find_node_by_name(child, target_name)
+		if result:
+			return result
+	return null
+
+
+## Recursively finds a Label node containing the given text (case-insensitive).
+func _find_label_containing(node: Node, text: String, max_depth: int) -> Label:
+	if max_depth <= 0:
+		return null
+	for child in node.get_children():
+		if child is Label and text in child.text.to_lower():
+			return child
+		var result := _find_label_containing(child, text, max_depth - 1)
 		if result:
 			return result
 	return null
