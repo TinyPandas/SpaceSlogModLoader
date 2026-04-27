@@ -1,0 +1,9 @@
+{
+	"mod_name": "ModLoader",
+	"mod_id": "spaceslog.modloader",
+	"mod_author": "SpaceSlog ModLoader",
+	"mod_description": "GDScript mod loading system",
+	"mod_version": "1.0",
+	"for_game_version": "",
+	"is_always_enabled": true
+}
