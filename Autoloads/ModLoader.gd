@@ -10,6 +10,10 @@ var _ModManifest: GDScript
 var _ModContext: GDScript
 var _ScriptRegistry: GDScript
 var _SpaceslogMod: GDScript
+var _UpdateChecker: GDScript
+
+## Update checker instance (child node)
+var _update_checker: Node = null
 
 ## Emitted after all mods have completed all lifecycle phases.
 signal all_mods_loaded
@@ -27,7 +31,7 @@ var _pipeline_ran: bool = false
 var _last_enabled_mods: Array = []
 
 const LOG_TAG: String = "[ModLoader]"
-const VERSION: String = "1.1"
+const VERSION: String = "1.1.0"
 
 enum ModState {
 	DISCOVERED,
@@ -48,12 +52,24 @@ func _ready() -> void:
 	_ModContext = _load_script(base.path_join("Autoloads/ModLoader/ModContext.gd"))
 	_ScriptRegistry = _load_script(base.path_join("Autoloads/ModLoader/ScriptRegistry.gd"))
 	_SpaceslogMod = _load_script(base.path_join("Autoloads/ModdingAPI/SpaceslogMod.gd"))
+	_UpdateChecker = _load_script(base.path_join("Autoloads/ModLoader/UpdateChecker.gd"))
 
 	if not _ModManifest or not _ModContext or not _ScriptRegistry or not _SpaceslogMod:
 		push_error("%s Failed to load one or more helper scripts — aborting" % LOG_TAG)
 		return
 
 	print("%s Helper scripts loaded successfully" % LOG_TAG)
+
+	# Start update check (runs in background, independent of mod pipeline)
+	if _UpdateChecker:
+		_update_checker = _UpdateChecker.new()
+		_update_checker.current_version = VERSION
+		add_child(_update_checker)
+		_update_checker.check_for_update()
+		print("%s Update checker started" % LOG_TAG)
+	else:
+		push_warning("%s UpdateChecker script not found — skipping update check" % LOG_TAG)
+
 	_await_data_and_load()
 	set_process(true)
 
