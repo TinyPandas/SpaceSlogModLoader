@@ -43,7 +43,7 @@ var _pipeline_ran: bool = false
 var _last_enabled_mods: Array = []
 
 const LOG_TAG: String = "[ModLoader]"
-const VERSION: String = "1.1.2_pre"
+const VERSION: String = "1.1.2"
 
 enum ModState {
 	DISCOVERED,
@@ -269,6 +269,13 @@ func _validate_and_sort(mods: Array) -> Array:
 
 	var valid_mods: Array = []
 	for manifest in mods:
+		# Check ModLoader version requirement
+		if not manifest.min_modloader_version.is_empty():
+			if _is_version_newer(manifest.min_modloader_version, VERSION):
+				push_warning("%s Mod '%s' requires ModLoader v%s (installed: v%s) — skipping" % [LOG_TAG, manifest.mod_id, manifest.min_modloader_version, VERSION])
+				_failed_mods.append(manifest.mod_id)
+				continue
+
 		var deps_ok: bool = true
 		for dep_id in manifest.dependencies:
 			if not available_ids.has(dep_id):
@@ -610,3 +617,34 @@ func get_version_string() -> String:
 	if failed_count > 0:
 		base += ", %d failed" % failed_count
 	return base
+
+
+## Returns true if version `a` is strictly newer than version `b` (semver comparison).
+static func _is_version_newer(a: String, b: String) -> bool:
+	var pa: Array = _parse_semver(a)
+	var pb: Array = _parse_semver(b)
+	for i in range(3):
+		if pa[i] > pb[i]:
+			return true
+		if pa[i] < pb[i]:
+			return false
+	return false
+
+
+## Parses a version string into [major, minor, patch]. Strips leading "v".
+static func _parse_semver(version: String) -> Array:
+	version = version.strip_edges()
+	if version.begins_with("v") or version.begins_with("V"):
+		version = version.substr(1)
+	# Strip any pre-release suffix (e.g., "1.1.2_pre" -> "1.1.2")
+	var underscore := version.find("_")
+	if underscore >= 0:
+		version = version.substr(0, underscore)
+	var dash := version.find("-")
+	if dash >= 0:
+		version = version.substr(0, dash)
+	var parts: PackedStringArray = version.split(".")
+	var result: Array = [0, 0, 0]
+	for i in range(mini(parts.size(), 3)):
+		result[i] = parts[i].to_int()
+	return result

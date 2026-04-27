@@ -15,6 +15,7 @@ var entry_script: String          ## Relative path within mod folder
 var dependencies: Array[String]   ## Array of mod_id strings
 var load_order: int = 100         ## Lower = earlier, default 100
 var scripts: Array[Dictionary]    ## [{path: "relative/path.gd", res_path: "res://..."}]
+var min_modloader_version: String ## Optional, minimum ModLoader version required
 var mod_folder: String            ## Absolute filesystem path to mod root
 
 const LOG_TAG: String = "[ModManifest]"
@@ -51,6 +52,7 @@ func parse_json(json_dict: Dictionary, folder_path: String) -> bool:
 	# GDScript-specific fields
 	entry_script = str(json_dict["entry_script"])
 	load_order = int(json_dict.get("load_order", 100))
+	min_modloader_version = str(json_dict.get("min_modloader_version", ""))
 	mod_folder = folder_path
 
 	# Parse dependencies

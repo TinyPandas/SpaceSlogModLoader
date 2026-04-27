@@ -107,6 +107,7 @@ GDScript fields (triggers ModLoader processing):
 | `scripts` | No | `[]` | Array of `{path, res_path}` for scripts to compile and register |
 | `dependencies` | No | `[]` | Array of `mod_id` strings this mod requires |
 | `load_order` | No | `100` | Lower values load first |
+| `min_modloader_version` | No | — | Minimum ModLoader version required (e.g., `"1.2.0"`) |
 
 ### Lifecycle methods
 
