@@ -11,9 +11,21 @@ var _ModContext: GDScript
 var _ScriptRegistry: GDScript
 var _SpaceslogMod: GDScript
 var _UpdateChecker: GDScript
+var _ModConfigManager: GDScript
+var _ConfigUIInjector: GDScript
 
 ## Update checker instance (child node)
 var _update_checker: Node = null
+## Config manager instance
+var _config_manager = null
+## Config UI injector instance
+var _config_ui_injector = null
+## Reference to the InfoContainer in the Modules tab
+var _info_container: VBoxContainer = null
+## Maps mod display names to mod_ids for config panel selection
+var _mod_name_to_id: Dictionary = {}
+## Tracks the last detected mod name in the InfoContainer to detect selection changes
+var _last_info_mod_name: String = ""
 
 ## Emitted after all mods have completed all lifecycle phases.
 signal all_mods_loaded
@@ -31,7 +43,7 @@ var _pipeline_ran: bool = false
 var _last_enabled_mods: Array = []
 
 const LOG_TAG: String = "[ModLoader]"
-const VERSION: String = "1.1.1"
+const VERSION: String = "1.1.2_pre"
 
 enum ModState {
 	DISCOVERED,
@@ -53,6 +65,8 @@ func _ready() -> void:
 	_ScriptRegistry = _load_script(base.path_join("Autoloads/ModLoader/ScriptRegistry.gd"))
 	_SpaceslogMod = _load_script(base.path_join("Autoloads/ModdingAPI/SpaceslogMod.gd"))
 	_UpdateChecker = _load_script(base.path_join("Autoloads/ModLoader/UpdateChecker.gd"))
+	_ModConfigManager = _load_script(base.path_join("Autoloads/ModLoader/ModConfigManager.gd"))
+	_ConfigUIInjector = _load_script(base.path_join("Autoloads/ModLoader/ConfigUIInjector.gd"))
 
 	if not _ModManifest or not _ModContext or not _ScriptRegistry or not _SpaceslogMod:
 		push_error("%s Failed to load one or more helper scripts — aborting" % LOG_TAG)
@@ -125,6 +139,11 @@ func _process(_delta: float) -> void:
 			_mod_states.clear()
 			_mod_data_entries.clear()
 			ModdingAPI.clear_all_tracked_entries()
+			if _config_manager:
+				_config_manager.clear_all()
+
+	# Poll for mod selection changes in the Modules tab
+	_check_mod_selection()
 
 
 func _get_enabled_mods_snapshot() -> Array:
@@ -138,6 +157,14 @@ func _run_pipeline() -> void:
 
 	var mods := _discover_mods()
 	var valid_mods := _validate_and_sort(mods)
+
+	if _ModConfigManager:
+		_load_configs(valid_mods)
+
+	# Instantiate the UI injector if configs are available
+	if _ConfigUIInjector and _config_ui_injector == null:
+		_config_ui_injector = _ConfigUIInjector.new()
+		_config_ui_injector._config_manager = _config_manager
 
 	for manifest in valid_mods:
 		if _is_mod_enabled(manifest.mod_id):
@@ -170,6 +197,21 @@ func _run_pipeline() -> void:
 	_pipeline_ran = true
 	_last_enabled_mods = _get_enabled_mods_snapshot()
 	all_mods_loaded.emit()
+
+
+func _load_configs(valid_mods: Array) -> void:
+	if _config_manager == null:
+		_config_manager = _ModConfigManager.new()
+	ModdingAPI._config_manager = _config_manager
+	for manifest in valid_mods:
+		if _is_mod_enabled(manifest.mod_id):
+			# Build name-to-id map for config UI selection
+			_mod_name_to_id[manifest.mod_name] = manifest.mod_id
+			var loaded: bool = _config_manager.load_config(manifest.mod_id, manifest.mod_folder)
+			if loaded:
+				print("%s [%s] Config loaded" % [LOG_TAG, manifest.mod_id])
+			else:
+				print("%s [%s] No config file found at: %s" % [LOG_TAG, manifest.mod_id, manifest.mod_folder.path_join(manifest.mod_id + ".cfg")])
 
 
 func _discover_mods() -> Array:
@@ -374,6 +416,10 @@ func _on_node_added(node: Node) -> void:
 		node.tree_exiting.connect(_on_version_label_removed)
 		call_deferred("_append_version_text")
 
+	# Config UI: store InfoContainer reference if detected via node_added
+	if _config_ui_injector and node.name == "InfoContainer" and node is VBoxContainer:
+		_info_container = node
+
 
 func _append_version_text() -> void:
 	if is_instance_valid(_ui_label):
@@ -397,6 +443,88 @@ func _on_version_label_removed() -> void:
 	_ui_label = null
 	if not get_tree().node_added.is_connected(_on_node_added):
 		get_tree().node_added.connect(_on_node_added)
+
+
+## Polls the InfoContainer for mod selection changes by checking the mod name label.
+func _check_mod_selection() -> void:
+	if not _config_ui_injector or not _config_manager:
+		return
+
+	# Lazily find InfoContainer if we haven't yet
+	if not is_instance_valid(_info_container):
+		_info_container = null
+		var root := get_tree().root
+		var found := _find_node_by_name(root, "InfoContainer")
+		if found and found is VBoxContainer:
+			_info_container = found
+		else:
+			return
+
+	# Find the mod name from the InfoContainer's content.
+	var current_mod_name: String = _detect_mod_name_from_info()
+	if current_mod_name == _last_info_mod_name:
+		return  # No change
+
+	_last_info_mod_name = current_mod_name
+
+	# Remove any existing config panel
+	for child in _info_container.get_children():
+		if child.name == "ConfigPanel":
+			_info_container.remove_child(child)
+			child.queue_free()
+
+	if current_mod_name.is_empty():
+		return
+
+	# Look up the mod_id from the display name
+	var mod_id: String = _mod_name_to_id.get(current_mod_name, "")
+	if mod_id.is_empty():
+		return
+
+	# Check if this mod has config entries
+	var config_entries: Dictionary = _config_manager.get_config_entries(mod_id)
+	if config_entries.is_empty():
+		return
+
+	var panel = _config_ui_injector.build_config_panel(mod_id, config_entries)
+	if panel != null:
+		_info_container.add_child(panel)
+		print("%s Config UI: Showing config for '%s'" % [LOG_TAG, mod_id])
+
+
+## Recursively finds a node by name in the scene tree.
+func _find_node_by_name(node: Node, target_name: String) -> Node:
+	if node.name == target_name:
+		return node
+	for child in node.get_children():
+		var result := _find_node_by_name(child, target_name)
+		if result:
+			return result
+	return null
+
+
+## Searches the InfoContainer for a Label whose text matches a known mod name.
+func _detect_mod_name_from_info() -> String:
+	if not is_instance_valid(_info_container):
+		return ""
+	return _search_labels_recursive(_info_container, 4)
+
+
+## Recursively searches for a Label matching a known mod name, up to max_depth levels.
+func _search_labels_recursive(node: Node, max_depth: int) -> String:
+	if max_depth <= 0:
+		return ""
+	for child in node.get_children():
+		if child.name == "ConfigPanel":
+			continue  # Skip our own injected panel
+		if child is Label:
+			var text: String = child.text.strip_edges()
+			if _mod_name_to_id.has(text):
+				return text
+		var result: String = _search_labels_recursive(child, max_depth - 1)
+		if not result.is_empty():
+			return result
+	return ""
 
 
 func _find_version_label(node: Node):
@@ -431,6 +559,8 @@ func _reload() -> void:
 	_mod_states.clear()
 	_mod_data_entries.clear()
 	ModdingAPI.clear_all_tracked_entries()
+	if _config_manager:
+		_config_manager.clear_all()
 	_run_pipeline()
 
 
@@ -447,6 +577,8 @@ func _cleanup_disabled_mods() -> void:
 		_mod_data_entries.erase(mod_id)
 		if _mod_scripts.has(mod_id):
 			_mod_scripts.erase(mod_id)
+		if _config_manager:
+			_config_manager.clear_mod(mod_id)
 
 
 func _remove_data_entry(category: String, key: StringName) -> void:

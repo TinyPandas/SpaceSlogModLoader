@@ -10,6 +10,8 @@ const LOG_TAG: String = "[ModdingAPI]"
 var _tracked_entries: Dictionary = {}  # mod_id -> Array of {category: String, key: StringName}
 ## Tracks reasoner patches per mod for reload cleanup
 var _tracked_patches: Dictionary = {}  # mod_id -> Array of {reasoner_key: StringName, option_key: StringName}
+## Reference to ModConfigManager instance (set by ModLoader during config loading)
+var _config_manager = null
 
 ## Maps category strings to their Data singleton dictionary names and Ref class names.
 const CATEGORY_MAP: Dictionary = {
@@ -310,3 +312,53 @@ func patch_data(
 
 	print("%s [%s] Patched %s: %s" % [LOG_TAG, mod_id, category, key])
 	return true
+
+# ─── Configuration Methods ────────────────────────────────────────
+
+
+## Returns the current value for a mod's config entry, or null if not found.
+func get_config(mod_id: String, value_name: String) -> Variant:
+	if _config_manager == null:
+		push_warning("%s Config manager not initialized" % LOG_TAG)
+		return null
+	return _config_manager.get_value(mod_id, value_name)
+
+
+## Returns a Dictionary of all config values for a mod.
+func get_all_config(mod_id: String) -> Dictionary:
+	if _config_manager == null:
+		push_warning("%s Config manager not initialized" % LOG_TAG)
+		return {}
+	return _config_manager.get_all_values(mod_id)
+
+
+## Returns the default value for a mod's config entry, or null if not found.
+func get_config_default(mod_id: String, value_name: String) -> Variant:
+	if _config_manager == null:
+		push_warning("%s Config manager not initialized" % LOG_TAG)
+		return null
+	return _config_manager.get_default_value(mod_id, value_name)
+
+
+## Updates a config value. Returns true on success, false on validation failure.
+func set_config(mod_id: String, value_name: String, new_value: Variant) -> bool:
+	if _config_manager == null:
+		push_warning("%s Config manager not initialized" % LOG_TAG)
+		return false
+	return _config_manager.set_value(mod_id, value_name, new_value)
+
+
+## Binds a config value to a target property for automatic updates.
+func bind_config(mod_id: String, value_name: String, target: Object, property: String) -> bool:
+	if _config_manager == null:
+		push_warning("%s Config manager not initialized" % LOG_TAG)
+		return false
+	return _config_manager.bind(mod_id, value_name, target, property)
+
+
+## Removes a config binding.
+func unbind_config(mod_id: String, value_name: String, target: Object, property: String) -> void:
+	if _config_manager == null:
+		push_warning("%s Config manager not initialized" % LOG_TAG)
+		return
+	_config_manager.unbind(mod_id, value_name, target, property)
