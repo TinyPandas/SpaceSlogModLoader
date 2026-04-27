@@ -27,7 +27,7 @@ var _pipeline_ran: bool = false
 var _last_enabled_mods: Array = []
 
 const LOG_TAG: String = "[ModLoader]"
-const VERSION: String = "1.0"
+const VERSION: String = "1.1"
 
 enum ModState {
 	DISCOVERED,
@@ -298,6 +298,7 @@ func _load_single_mod(manifest) -> void:
 	_mod_states[manifest.mod_id] = ModState.INITIALIZED
 
 	_loaded_mods.append(mod_instance)
+	add_child(mod_instance)
 	print("%s [%s] Mod initialized successfully" % [LOG_TAG, manifest.mod_id])
 
 
