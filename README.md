@@ -8,6 +8,8 @@ A GDScript mod loading system for [SpaceSlog](https://store.steampowered.com/app
 - **Compiles** loose `.gd` files and registers them at `res://` paths automatically
 - **Orchestrates** a four-phase mod lifecycle: init → register → patch → ready
 - **Provides** the ModdingAPI with typed methods for registering tasks, task drivers, considerations, pawn options, and reasoner patches
+- **Configures** mods via `.cfg` files with an in-game UI in the Modules tab
+- **Updates** automatically from GitHub releases
 - **Displays** version and loaded mod count on the main menu
 - **Detects** mod enable/disable changes and updates in real time
 
@@ -32,7 +34,10 @@ SpaceSlog/
     └── ModLoader/
         ├── ModManifest.gd               ← manifest parser
         ├── ModContext.gd                 ← mod logging context
-        └── ScriptRegistry.gd            ← script compiler/registrar
+        ├── ScriptRegistry.gd            ← script compiler/registrar
+        ├── UpdateChecker.gd             ← automatic update checker
+        ├── ModConfigManager.gd          ← mod configuration system
+        └── ConfigUIInjector.gd          ← config UI for Modules tab
 ```
 
 ### 3. Verify
@@ -144,6 +149,114 @@ context.log("message")          # Print with [mod_id] prefix
 context.log_warning("message")  # Warning with [mod_id] prefix
 context.log_error("message")    # Error with [mod_id] prefix
 ```
+
+### Configuration
+
+Mods can define player-configurable settings using a `.cfg` file. The ModLoader reads the config automatically and provides an in-game UI in the Modules tab.
+
+#### Creating a config file
+
+Create a file named `{mod_id}.cfg` in your mod folder (e.g., `author.my_mod.cfg`). The format is JSON:
+
+```json
+{
+    "speed_multiplier": {
+        "type": "float",
+        "defaultValue": 1.0,
+        "currentValue": 1.0,
+        "minValue": 0.1,
+        "maxValue": 10.0
+    },
+    "enable_feature": {
+        "type": "bool",
+        "defaultValue": true,
+        "currentValue": true
+    },
+    "max_count": {
+        "type": "int",
+        "defaultValue": 5,
+        "currentValue": 5,
+        "minValue": 1,
+        "maxValue": 100
+    },
+    "label_text": {
+        "type": "string",
+        "defaultValue": "Hello",
+        "currentValue": "Hello"
+    }
+}
+```
+
+#### Config entry fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type` | Yes | `"bool"`, `"int"`, `"float"`, or `"string"` |
+| `defaultValue` | Yes | The default value (must match the declared type) |
+| `currentValue` | No | The player's current setting (falls back to `defaultValue` if missing or invalid) |
+| `minValue` | No | Minimum allowed value (`int` and `float` only) |
+| `maxValue` | No | Maximum allowed value (`int` and `float` only) |
+
+#### Reading config values
+
+Config values are available from `_on_mod_init` onward:
+
+```gdscript
+func _on_mod_init(ctx) -> void:
+    var speed = ModdingAPI.get_config(context.mod_id, "speed_multiplier")
+    var enabled = ModdingAPI.get_config(context.mod_id, "enable_feature")
+    context.log("Speed: %s, Enabled: %s" % [speed, enabled])
+```
+
+#### Config API methods
+
+```gdscript
+# Read values
+ModdingAPI.get_config(mod_id, value_name)           # Returns current value
+ModdingAPI.get_all_config(mod_id)                    # Returns {name: value} dict
+ModdingAPI.get_config_default(mod_id, value_name)    # Returns default value
+
+# Write values (validates type, persists to disk, emits signal)
+ModdingAPI.set_config(mod_id, value_name, new_value)
+
+# Auto-bind a config value to an object property (zero boilerplate)
+ModdingAPI.bind_config(mod_id, value_name, target_object, "property_name")
+ModdingAPI.unbind_config(mod_id, value_name, target_object, "property_name")
+```
+
+#### Reacting to config changes at runtime
+
+**Option 1: Polling** — Call `get_config()` whenever you need the value. Simple, no setup needed.
+
+**Option 2: Binding** — Use `bind_config()` to auto-update a property when the value changes:
+
+```gdscript
+func _on_mod_init(ctx) -> void:
+    # self.speed_multiplier will be set immediately and updated whenever the player changes it
+    ModdingAPI.bind_config(context.mod_id, "speed_multiplier", self, "speed_multiplier")
+```
+
+**Option 3: Signal** — Connect to the config manager's signal for full control:
+
+```gdscript
+func _on_mod_init(ctx) -> void:
+    ModdingAPI._config_manager.config_value_changed.connect(_on_config_changed)
+
+func _on_config_changed(mod_id: String, value_name: String, new_value) -> void:
+    if mod_id != context.mod_id:
+        return
+    context.log("Config changed: %s = %s" % [value_name, new_value])
+```
+
+#### In-game UI
+
+Players can adjust config values from the main menu **Modules** tab. When a mod with a `.cfg` file is selected, a Configuration section appears with appropriate controls:
+- **bool** → checkbox
+- **int** / **float** → numeric spinner (respects `minValue`/`maxValue`)
+- **string** → text input
+- **Reset to Defaults** button restores all values
+
+Changes are saved to disk immediately and take effect without restarting.
 
 ## Compatibility
 
