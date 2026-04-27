@@ -69,7 +69,7 @@ func _on_check_completed(result: int, response_code: int, _headers: PackedString
 		update_check_completed.emit(false, _latest_version)
 		return
 
-	# Find the zip asset in the release
+	# Find a download URL: prefer an uploaded .zip asset, fall back to zipball_url
 	var assets: Array = data.get("assets", [])
 	_download_url = ""
 	for asset in assets:
@@ -78,8 +78,12 @@ func _on_check_completed(result: int, response_code: int, _headers: PackedString
 			_download_url = str(asset.get("browser_download_url", ""))
 			break
 
+	# GitHub auto-generates source zips at zipball_url even when no asset is uploaded
 	if _download_url.is_empty():
-		push_warning("%s Release %s has no .zip asset — cannot auto-update" % [LOG_TAG, _latest_version])
+		_download_url = str(data.get("zipball_url", ""))
+
+	if _download_url.is_empty():
+		push_warning("%s Release %s has no downloadable zip — cannot auto-update" % [LOG_TAG, _latest_version])
 		update_check_completed.emit(false, _latest_version)
 		return
 
@@ -124,6 +128,7 @@ func _download_update() -> void:
 	_download_request.request_completed.connect(_on_download_completed)
 
 	var headers: PackedStringArray = PackedStringArray([
+		"Accept: application/vnd.github.v3+json",
 		"User-Agent: SpaceSlogModLoader/%s" % current_version
 	])
 
@@ -243,7 +248,7 @@ func _should_extract(relative_path: String) -> bool:
 func _show_restart_prompt() -> void:
 	_restart_dialog = AcceptDialog.new()
 	_restart_dialog.title = "ModLoader Updated"
-	_restart_dialog.dialog_text = "ModLoader has been updated to v%s.\nPlease restart the game for changes to take effect." % _latest_version
+	_restart_dialog.dialog_text = "ModLoader has been updated to v%s.\nThe game will now close. Please relaunch to use the new version." % _latest_version
 	_restart_dialog.ok_button_text = "OK"
 	_restart_dialog.confirmed.connect(_on_restart_acknowledged)
 
@@ -253,6 +258,7 @@ func _show_restart_prompt() -> void:
 func _on_restart_acknowledged() -> void:
 	_cleanup_dialog(_restart_dialog)
 	_restart_dialog = null
+	get_tree().quit()
 
 
 # ─── Version Comparison ──────────────────────────────────────────────

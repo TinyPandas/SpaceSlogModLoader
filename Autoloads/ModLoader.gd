@@ -31,7 +31,7 @@ var _pipeline_ran: bool = false
 var _last_enabled_mods: Array = []
 
 const LOG_TAG: String = "[ModLoader]"
-const VERSION: String = "1.1.0"
+const VERSION: String = "1.1.1"
 
 enum ModState {
 	DISCOVERED,
