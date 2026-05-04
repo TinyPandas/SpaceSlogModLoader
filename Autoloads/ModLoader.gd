@@ -143,6 +143,19 @@ func _process(_delta: float) -> void:
 			ModdingAPI.clear_all_tracked_entries()
 			if _config_manager:
 				_config_manager.clear_all()
+		# Detect if the game rebuilt Data (e.g. "Restarting Systems") which
+		# wipes mod-registered entries.  If any tracked entry is missing from
+		# its Data dictionary the pipeline must re-run.
+		elif _has_data_been_rebuilt():
+			print("%s Data rebuilt detected — re-running pipeline" % LOG_TAG)
+			_pipeline_ran = false
+			_loaded_mods.clear()
+			_failed_mods.clear()
+			_mod_states.clear()
+			_mod_data_entries.clear()
+			ModdingAPI.clear_all_tracked_entries()
+			if _config_manager:
+				_config_manager.clear_all()
 
 	# Poll for mod selection changes in the Modules tab
 	_check_mod_selection()
@@ -152,6 +165,20 @@ func _get_enabled_mods_snapshot() -> Array:
 	if not is_instance_valid(PlayerSettings) or not PlayerSettings.has_method("get_mods"):
 		return []
 	return PlayerSettings.get_mods().duplicate()
+
+
+## Returns true if the game has rebuilt its Data dictionaries since the last
+## pipeline run, which would wipe out all mod-registered entries.
+func _has_data_been_rebuilt() -> bool:
+	for mod_id in _mod_data_entries.keys():
+		for entry in _mod_data_entries[mod_id]:
+			if not ModdingAPI.CATEGORY_MAP.has(entry.category):
+				continue
+			var dict_name: String = ModdingAPI.CATEGORY_MAP[entry.category].dict_name
+			var data_dict: Dictionary = Data[dict_name]
+			if not data_dict.has(entry.key):
+				return true
+	return false
 
 
 func _run_pipeline() -> void:
